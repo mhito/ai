@@ -391,10 +391,11 @@ configure_provider() {
     echo "1) Ollama (local)"
     echo "2) DeepSeek (API)"
     echo "3) Moonshot/Kimi (API)"
+    echo "4) OpenAI (API)"
     echo ""
-    echo -n "Select option [1-3]: "
+    echo -n "Select option [1-4]: "
     read -r provider_choice
-    
+
     case $provider_choice in
         1)
             echo ""
@@ -502,6 +503,44 @@ configure_provider() {
             
             echo ""
             echo -e "${GREEN}✓ Moonshot/Kimi configured${RESET}"
+            ;;
+        4)
+            echo ""
+            echo -e "${BLUE}🧠 OpenAI Configuration${RESET}"
+            echo ""
+            echo -e "${YELLOW}⚠️  Security Notice: Your API key will be stored in ~/.ai/config with 600 permissions${RESET}"
+            echo ""
+
+            # Check for existing OpenAI API key
+            existing_key=$(get_ini_value "openai" "api_key")
+            if [ -n "$existing_key" ]; then
+                echo -e "${YELLOW}Existing OpenAI API key found${RESET}"
+                echo -n "Use existing API key? (y/n): "
+                read -r use_existing
+                if [ "$use_existing" = "y" ] || [ "$use_existing" = "Y" ]; then
+                    api_key="$existing_key"
+                else
+                    echo -n "API Key: "
+                    read -r api_key
+                fi
+            else
+                echo -n "API Key: "
+                read -r api_key
+            fi
+
+            echo -n "Model (default: gpt-4o-mini): "
+            read -r openai_model
+            if [ -z "$openai_model" ]; then
+                openai_model="gpt-4o-mini"
+            fi
+
+            # Update only OpenAI-specific values, preserve others
+            update_ini_value "" "provider" "openai"
+            update_ini_value "openai" "api_key" "$api_key"
+            update_ini_value "openai" "model" "$openai_model"
+
+            echo ""
+            echo -e "${GREEN}✓ OpenAI configured${RESET}"
             ;;
         *)
             echo -e "${RED}Invalid option${RESET}"

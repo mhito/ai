@@ -210,17 +210,17 @@ call_moonshot() {
   local prompt="$1"
   local api_key="$2"
   local model="$3"
-  
+
   local os_context=$(get_os_info)
   local system_content=""
-  
+
   if [ -f "$PROMPT_FILE" ]; then
     local base_prompt=$(cat "$PROMPT_FILE")
     system_content="$base_prompt\n\nSystem context: $os_context"
   else
     system_content="You are a helpful AI assistant. Answer questions directly and concisely. Be brief but informative.\n\nIMPORTANT FORMATTING RULES:\n- NO markdown (no **, no \`, no #, no -)\n- Use plain text only\n- For emphasis, use UPPERCASE or simple indentation\n- For commands, just write them without backticks\n- For lists, use simple numbers or dashes\n\nSystem context: $os_context"
   fi
-  
+
   local json_payload=$(jq -n \
     --arg model "$model" \
     --arg prompt "$prompt" \
@@ -238,28 +238,85 @@ call_moonshot() {
         }
       ]
     }')
-  
+
   local response=$(mktemp)
-  
+
   (
     curl -s "https://api.moonshot.ai/v1/chat/completions" \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer $api_key" \
       -d "$json_payload" > "$response"
   ) &
-  
+
   spinner
-  
+
   local response_content=$(cat "$response")
   rm "$response"
-  
+
   local answer=$(echo "$response_content" | jq -r '.choices[0].message.content // empty')
-  
+
   if [ -z "$answer" ]; then
     echo "❌ Error: no se pudo obtener respuesta"
     exit 1
   fi
-  
+
+  colorize_output "$answer"
+}
+
+call_openai() {
+  local prompt="$1"
+  local api_key="$2"
+  local model="$3"
+
+  local os_context=$(get_os_info)
+  local system_content=""
+
+  if [ -f "$PROMPT_FILE" ]; then
+    local base_prompt=$(cat "$PROMPT_FILE")
+    system_content="$base_prompt\n\nSystem context: $os_context"
+  else
+    system_content="You are a helpful AI assistant. Answer questions directly and concisely. Be brief but informative.\n\nIMPORTANT FORMATTING RULES:\n- NO markdown (no **, no \`, no #, no -)\n- Use plain text only\n- For emphasis, use UPPERCASE or simple indentation\n- For commands, just write them without backticks\n- For lists, use simple numbers or dashes\n\nSystem context: $os_context"
+  fi
+
+  local json_payload=$(jq -n \
+    --arg model "$model" \
+    --arg prompt "$prompt" \
+    --arg system "$system_content" \
+    '{
+      model: $model,
+      messages: [
+        {
+          role: "system",
+          content: $system
+        },
+        {
+          role: "user",
+          content: $prompt
+        }
+      ]
+    }')
+
+  local response=$(mktemp)
+
+  (
+    curl -s "https://api.openai.com/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $api_key" \
+      -d "$json_payload" > "$response"
+  ) &
+
+  spinner
+
+  local response_content=$(cat "$response")
+  rm "$response"
+
+  local answer=$(echo "$response_content" | jq -r '.choices[0].message.content // empty')
+
+  if [ -z "$answer" ]; then
+    echo "❌ Error: no se pudo obtener respuesta"
+    exit 1
+  fi
+
   colorize_output "$answer"
 }
 
@@ -328,6 +385,11 @@ case $PROVIDER in
     MOONSHOT_API_KEY=$(get_config "AI_MOONSHOT_API_KEY" "moonshot" "api_key")
     MOONSHOT_MODEL=$(get_config "AI_MOONSHOT_MODEL" "moonshot" "model")
     call_moonshot "$PROMPT" "$MOONSHOT_API_KEY" "$MOONSHOT_MODEL"
+    ;;
+  openai)
+    OPENAI_API_KEY=$(get_config "AI_OPENAI_API_KEY" "openai" "api_key")
+    OPENAI_MODEL=$(get_config "AI_OPENAI_MODEL" "openai" "model")
+    call_openai "$PROMPT" "$OPENAI_API_KEY" "$OPENAI_MODEL"
     ;;
   *)
     echo "❌ Proveedor desconocido: $PROVIDER"

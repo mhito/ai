@@ -56,6 +56,10 @@ model=deepseek-chat
 [moonshot]
 api_key=sk-xxxxxxxxxxxxx
 model=kimi-k2.5
+
+[openai]
+api_key=sk-xxxxxxxxxxxxx
+model=gpt-4o-mini
 ```
 
 Switching providers only updates the global `provider=` key; all other sections are preserved.
@@ -74,6 +78,8 @@ All config values can be overridden via environment variables (checked before th
 | `AI_DEEPSEEK_MODEL` | `[deepseek] model` |
 | `AI_MOONSHOT_API_KEY` | `[moonshot] api_key` |
 | `AI_MOONSHOT_MODEL` | `[moonshot] model` |
+| `AI_OPENAI_API_KEY` | `[openai] api_key` |
+| `AI_OPENAI_MODEL` | `[openai] model` |
 
 ## Dependencies
 

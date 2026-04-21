@@ -17,7 +17,7 @@ ai "how do I extract a tar.gz file"
 
 - 🚀 **Fast & Lightweight** - No heavy dependencies, just bash and curl
 - 🎯 **Two Modes** - Command generation (`ai`) and conversational queries (`aic`)
-- 🔌 **Multiple Providers** - Support for Ollama (local), DeepSeek, and Moonshot/Kimi (API)
+- 🔌 **Multiple Providers** - Support for Ollama (local), DeepSeek, Moonshot/Kimi, and OpenAI (API)
 - 🧠 **Context-Aware** - Automatically detects your OS, kernel, and architecture for precise commands
 - 📄 **File Analysis** - `aic` can read and analyze files via stdin (pipes)
 - ⚙️ **Interactive Setup** - First-run configuration wizard
@@ -57,7 +57,7 @@ The installer will:
   - On macOS: Uses Homebrew (installs it if needed)
   - On Linux: Uses your package manager (apt, dnf, pacman, zypper)
 - ✅ Configure language-specific prompts
-- ✅ Configure LLM provider (Ollama or DeepSeek)
+- ✅ Configure LLM provider (Ollama, DeepSeek, Moonshot/Kimi, or OpenAI)
 - ✅ Install `ai` and `aic` commands
 - ✅ Guide you through the setup
 
@@ -194,6 +194,7 @@ Select LLM Provider:
 1) Ollama (local)
 2) DeepSeek (API)
 3) Moonshot/Kimi (API)
+4) OpenAI (API)
 ```
 
 ### Ollama Setup
@@ -223,6 +224,21 @@ If you choose DeepSeek:
 API Key: sk-xxxxxxxxxxxxx
 ```
 
+Default model: `deepseek-chat`
+
+### OpenAI Setup
+
+If you choose OpenAI:
+
+```
+🧠 OpenAI Configuration
+
+API Key: sk-xxxxxxxxxxxxx
+Model (default: gpt-4o-mini): 
+```
+
+Default model: `gpt-4o-mini`
+
 ### Configuration Files
 
 Settings are stored in `~/.ai/`. The config file is created with `600` permissions to protect API keys.
@@ -243,6 +259,10 @@ model=deepseek-chat
 [moonshot]
 api_key=sk-xxxxxxxxxxxxx
 model=kimi-k2.5
+
+[openai]
+api_key=sk-xxxxxxxxxxxxx
+model=gpt-4o-mini
 ```
 
 The file stores all providers simultaneously. Switching providers only changes the global `provider=` line — other sections are preserved.
@@ -265,7 +285,7 @@ ai "list running containers"
 
 | Variable | Description |
 |----------|-------------|
-| `AI_PROVIDER` | Active provider (`ollama`, `deepseek`, `moonshot`) |
+| `AI_PROVIDER` | Active provider (`ollama`, `deepseek`, `moonshot`, `openai`) |
 | `AI_OLLAMA_HOST` | Ollama server URL |
 | `AI_OLLAMA_MODEL` | Ollama model name |
 | `AI_OLLAMA_HAS_PROMPT` | Whether model has built-in system prompt (`y`/`n`) |
@@ -273,6 +293,8 @@ ai "list running containers"
 | `AI_DEEPSEEK_MODEL` | DeepSeek model name |
 | `AI_MOONSHOT_API_KEY` | Moonshot API key |
 | `AI_MOONSHOT_MODEL` | Moonshot model name |
+| `AI_OPENAI_API_KEY` | OpenAI API key |
+| `AI_OPENAI_MODEL` | OpenAI model name |
 
 ### Language Support
 
@@ -283,16 +305,16 @@ AI supports multiple languages for prompts:
 
 During installation, you'll be asked to select your preferred language. The system prompts will be configured accordingly.
 
-To change the language after installation, copy the desired prompt files:
+To change the language after installation, run the installer again and select a new language, or copy the prompt files from the repository:
 
 ```bash
-# Switch to Spanish
-cp ~/.ai/lang/ai_es.md ~/.ai/ai_prompt.txt
-cp ~/.ai/lang/aic_es.md ~/.ai/aic_prompt.txt
+# Switch to Spanish (from the cloned repo directory)
+cp /path/to/ai-repo/lang/ai_es.md ~/.ai/ai_prompt.txt
+cp /path/to/ai-repo/lang/aic_es.md ~/.ai/aic_prompt.txt
 
 # Switch to English
-cp ~/.ai/lang/ai_en.md ~/.ai/ai_prompt.txt
-cp ~/.ai/lang/aic_en.md ~/.ai/aic_prompt.txt
+cp /path/to/ai-repo/lang/ai_en.md ~/.ai/ai_prompt.txt
+cp /path/to/ai-repo/lang/aic_en.md ~/.ai/aic_prompt.txt
 ```
 
 ## Supported Providers
@@ -328,6 +350,13 @@ The AI installer will ask for the Ollama host and port (default: `http://localho
 - **Cons:** Requires API key, internet connection
 - **Default model:** `kimi-k2.5`
 - **Setup:** Get an API key from [Moonshot](https://platform.moonshot.cn/)
+
+### OpenAI (API)
+
+- **Pros:** Industry-standard models, broad capability
+- **Cons:** Requires API key, internet connection, paid usage
+- **Default model:** `gpt-4o-mini`
+- **Setup:** Get an API key from [OpenAI](https://platform.openai.com/)
 
 ## Design Principles
 
@@ -475,10 +504,11 @@ Verify your API key in `~/.ai/config` and check your internet connection.
 ## Roadmap
 
 - [x] Command execution (optional, with safety checks)
+- [x] Support for multiple LLM providers (Ollama, DeepSeek, Moonshot/Kimi, OpenAI)
 - [ ] History and learning from user preferences
 - [ ] Multi-step command generation
 - [ ] Shell integration (autocomplete, suggestions)
-- [ ] Support for more LLM providers (OpenAI, Anthropic, etc.)
+- [ ] Support for more LLM providers (Anthropic, Gemini, etc.)
 
 ## Contributing
 
