@@ -1,0 +1,336 @@
+#!/bin/bash
+
+CONFIG_DIR="$HOME/.ai"
+CONFIG_FILE="$CONFIG_DIR/config"
+PROMPT_FILE="$CONFIG_DIR/aic_prompt.txt"
+
+# Helper function to read INI value
+get_ini_value() {
+  local section="$1"
+  local key="$2"
+  local config_file="$CONFIG_FILE"
+  
+  if [ ! -f "$config_file" ]; then
+    return
+  fi
+  
+  # If no section (global), read from top
+  if [ -z "$section" ]; then
+    grep "^${key}=" "$config_file" | head -n1 | cut -d'=' -f2-
+  else
+    # Read from specific section
+    awk -v section="$section" -v key="$key" '
+      /^\[.*\]$/ { in_section=0 }
+      $0 == "["section"]" { in_section=1; next }
+      in_section && $0 ~ "^"key"=" { sub("^"key"=", ""); print; exit }
+    ' "$config_file"
+  fi
+}
+
+# Get config value: first from ENV, then from INI
+get_config() {
+  local env_var="$1"
+  local ini_section="$2"
+  local ini_key="$3"
+  
+  # First try environment variable
+  local env_value="${!env_var}"
+  if [ -n "$env_value" ]; then
+    echo "$env_value"
+    return
+  fi
+  
+  # Fallback to INI file
+  get_ini_value "$ini_section" "$ini_key"
+}
+
+get_os_info() {
+  local os_name="Unknown"
+  local kernel="Unknown"
+  local arch="Unknown"
+  
+  # Detect macOS
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    os_name="macOS $(sw_vers -productVersion 2>/dev/null || echo 'Unknown')"
+    kernel="Darwin $(uname -r 2>/dev/null || echo 'Unknown')"
+  elif [ -f /etc/os-release ]; then
+    os_name=$(grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)
+    kernel=$(uname -r 2>/dev/null || echo "Unknown")
+  else
+    kernel=$(uname -r 2>/dev/null || echo "Unknown")
+  fi
+  
+  arch=$(uname -m 2>/dev/null || echo "Unknown")
+  
+  echo "OS: $os_name, Kernel: $kernel, Arch: $arch"
+}
+
+colorize_output() {
+  local text="$1"
+  
+  # Colores ANSI
+  local BOLD='\033[1m'
+  local GREEN='\033[0;32m'
+  local CYAN='\033[0;36m'
+  local RESET='\033[0m'
+  
+  # Simplemente imprimir el texto sin procesamiento adicional
+  # ya que le pedimos al modelo que no use markdown
+  echo "$text"
+}
+
+spinner() {
+  local pid=$!
+  local delay=0.1
+  local spinstr='|/-\'
+  
+  while ps -p $pid > /dev/null 2>&1; do
+    local temp=${spinstr#?}
+    printf "\r [%c] " "$spinstr"
+    spinstr=$temp${spinstr%"$temp"}
+    sleep $delay
+  done
+
+  printf "\r                    \r"
+}
+
+call_ollama() {
+  local prompt="$1"
+  local model="$2"
+  local has_prompt="$3"
+  local host="$4"
+  
+  local os_context=$(get_os_info)
+  
+  local system_prompt=""
+  if [ "$has_prompt" != "y" ]; then
+    if [ -f "$PROMPT_FILE" ]; then
+      local base_prompt=$(cat "$PROMPT_FILE")
+      system_prompt="$base_prompt\n\nSystem context: $os_context"
+    else
+      system_prompt="You are a helpful AI assistant. Answer questions directly and concisely. Be brief but informative.\n\nIMPORTANT FORMATTING RULES:\n- NO markdown (no **, no \`, no #, no -)\n- Use plain text only\n- For emphasis, use UPPERCASE or simple indentation\n- For commands, just write them without backticks\n- For lists, use simple numbers or dashes\n\nSystem context: $os_context"
+    fi
+  fi
+  
+  local json_payload
+  if [ -n "$system_prompt" ]; then
+    json_payload=$(jq -n \
+      --arg model "$model" \
+      --arg prompt "$prompt" \
+      --arg system "$system_prompt" \
+      '{model: $model, prompt: $prompt, system: $system, stream: false}')
+  else
+    json_payload=$(jq -n \
+      --arg model "$model" \
+      --arg prompt "$prompt" \
+      '{model: $model, prompt: $prompt, stream: false}')
+  fi
+  
+  local response=$(mktemp)
+  
+  (
+    curl -s "$host/api/generate" \
+      -H "Content-Type: application/json" \
+      -d "$json_payload" > "$response"
+  ) &
+  
+  spinner
+  
+  local response_content=$(cat "$response")
+  rm "$response"
+  
+  local answer=$(echo "$response_content" | jq -r '.response // empty')
+  
+  if [ -z "$answer" ]; then
+    echo "❌ Error: no se pudo obtener respuesta"
+    exit 1
+  fi
+  
+  colorize_output "$answer"
+}
+
+call_deepseek() {
+  local prompt="$1"
+  local api_key="$2"
+  local model="$3"
+  
+  local os_context=$(get_os_info)
+  local system_content=""
+  
+  if [ -f "$PROMPT_FILE" ]; then
+    local base_prompt=$(cat "$PROMPT_FILE")
+    system_content="$base_prompt\n\nSystem context: $os_context"
+  else
+    system_content="You are a helpful AI assistant. Answer questions directly and concisely. Be brief but informative.\n\nIMPORTANT FORMATTING RULES:\n- NO markdown (no **, no \`, no #, no -)\n- Use plain text only\n- For emphasis, use UPPERCASE or simple indentation\n- For commands, just write them without backticks\n- For lists, use simple numbers or dashes\n\nSystem context: $os_context"
+  fi
+  
+  local json_payload=$(jq -n \
+    --arg model "$model" \
+    --arg prompt "$prompt" \
+    --arg system "$system_content" \
+    '{
+      model: $model,
+      messages: [
+        {
+          role: "system",
+          content: $system
+        },
+        {
+          role: "user",
+          content: $prompt
+        }
+      ]
+    }')
+  
+  local response=$(mktemp)
+  
+  (
+    curl -s "https://api.deepseek.com/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $api_key" \
+      -d "$json_payload" > "$response"
+  ) &
+  
+  spinner
+  
+  local response_content=$(cat "$response")
+  rm "$response"
+  
+  local answer=$(echo "$response_content" | jq -r '.choices[0].message.content // empty')
+  
+  if [ -z "$answer" ]; then
+    echo "❌ Error: no se pudo obtener respuesta"
+    exit 1
+  fi
+  
+  colorize_output "$answer"
+}
+
+call_moonshot() {
+  local prompt="$1"
+  local api_key="$2"
+  local model="$3"
+  
+  local os_context=$(get_os_info)
+  local system_content=""
+  
+  if [ -f "$PROMPT_FILE" ]; then
+    local base_prompt=$(cat "$PROMPT_FILE")
+    system_content="$base_prompt\n\nSystem context: $os_context"
+  else
+    system_content="You are a helpful AI assistant. Answer questions directly and concisely. Be brief but informative.\n\nIMPORTANT FORMATTING RULES:\n- NO markdown (no **, no \`, no #, no -)\n- Use plain text only\n- For emphasis, use UPPERCASE or simple indentation\n- For commands, just write them without backticks\n- For lists, use simple numbers or dashes\n\nSystem context: $os_context"
+  fi
+  
+  local json_payload=$(jq -n \
+    --arg model "$model" \
+    --arg prompt "$prompt" \
+    --arg system "$system_content" \
+    '{
+      model: $model,
+      messages: [
+        {
+          role: "system",
+          content: $system
+        },
+        {
+          role: "user",
+          content: $prompt
+        }
+      ]
+    }')
+  
+  local response=$(mktemp)
+  
+  (
+    curl -s "https://api.moonshot.ai/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $api_key" \
+      -d "$json_payload" > "$response"
+  ) &
+  
+  spinner
+  
+  local response_content=$(cat "$response")
+  rm "$response"
+  
+  local answer=$(echo "$response_content" | jq -r '.choices[0].message.content // empty')
+  
+  if [ -z "$answer" ]; then
+    echo "❌ Error: no se pudo obtener respuesta"
+    exit 1
+  fi
+  
+  colorize_output "$answer"
+}
+
+PROMPT="$*"
+
+# Check if there's input from stdin (pipe)
+STDIN_CONTENT=""
+HAS_STDIN=false
+if [ ! -t 0 ]; then
+  # Read from stdin
+  STDIN_CONTENT=$(cat)
+  HAS_STDIN=true
+  # Strip ANSI escape codes and check if stdin has any non-whitespace content
+  STDIN_TRIMMED=$(printf '%s' "$STDIN_CONTENT" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\000' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+fi
+
+# If there's stdin content, combine it with the prompt
+if [ "$HAS_STDIN" = true ] && [ -n "$STDIN_TRIMMED" ]; then
+  if [ -z "$PROMPT" ]; then
+    # No prompt provided, just analyze the content
+    PROMPT="Analyze this content:\n\n$STDIN_CONTENT"
+  else
+    # Combine prompt with stdin content
+    PROMPT="$PROMPT\n\nContent:\n$STDIN_CONTENT"
+  fi
+elif [ "$HAS_STDIN" = true ] && [ -z "$STDIN_TRIMMED" ]; then
+  # Stdin was provided but is empty or only whitespace
+  echo "❌ Error: El contenido recibido está vacío"
+  echo ""
+  echo "Verifica que el archivo tenga contenido:"
+  echo "  cat archivo.txt"
+  exit 1
+elif [ -z "$PROMPT" ]; then
+  echo "Uso: aic \"tu pregunta\""
+  echo "      cat archivo | aic \"pregunta sobre el archivo\""
+  echo "      cat archivo | aic  (analiza el contenido)"
+  exit 1
+fi
+
+# Load configuration: ENV first, then INI file
+PROVIDER=$(get_config "AI_PROVIDER" "" "provider")
+
+if [ -z "$PROVIDER" ]; then
+  echo "❌ AI is not configured yet."
+  echo ""
+  echo "Please run the installer first:"
+  echo "  cd ~/.ai && ./install.sh"
+  echo ""
+  echo "Or set AI_PROVIDER environment variable."
+  exit 1
+fi
+
+case $PROVIDER in
+  ollama)
+    OLLAMA_MODEL=$(get_config "AI_OLLAMA_MODEL" "ollama" "model")
+    OLLAMA_HAS_PROMPT=$(get_config "AI_OLLAMA_HAS_PROMPT" "ollama" "has_prompt")
+    OLLAMA_HOST=$(get_config "AI_OLLAMA_HOST" "ollama" "host")
+    call_ollama "$PROMPT" "$OLLAMA_MODEL" "$OLLAMA_HAS_PROMPT" "$OLLAMA_HOST"
+    ;;
+  deepseek)
+    DEEPSEEK_API_KEY=$(get_config "AI_DEEPSEEK_API_KEY" "deepseek" "api_key")
+    DEEPSEEK_MODEL=$(get_config "AI_DEEPSEEK_MODEL" "deepseek" "model")
+    call_deepseek "$PROMPT" "$DEEPSEEK_API_KEY" "$DEEPSEEK_MODEL"
+    ;;
+  moonshot)
+    MOONSHOT_API_KEY=$(get_config "AI_MOONSHOT_API_KEY" "moonshot" "api_key")
+    MOONSHOT_MODEL=$(get_config "AI_MOONSHOT_MODEL" "moonshot" "model")
+    call_moonshot "$PROMPT" "$MOONSHOT_API_KEY" "$MOONSHOT_MODEL"
+    ;;
+  *)
+    echo "❌ Proveedor desconocido: $PROVIDER"
+    exit 1
+    ;;
+esac
