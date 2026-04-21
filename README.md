@@ -319,11 +319,22 @@ cp /path/to/ai-repo/lang/aic_en.md ~/.ai/aic_prompt.txt
 
 ## Supported Providers
 
+| Provider | Type | Default Model | Status |
+|----------|------|--------------|--------|
+| [Ollama](https://ollama.ai/) | Local | *(any pulled model)* | ✅ Available |
+| [DeepSeek](https://platform.deepseek.com/) | API | `deepseek-chat` | ✅ Available |
+| [Moonshot/Kimi](https://platform.moonshot.cn/) | API | `kimi-k2.5` | ✅ Available |
+| [OpenAI](https://platform.openai.com/) | API | `gpt-4o-mini` | ✅ Available |
+| [Anthropic](https://console.anthropic.com/) | API | `claude-sonnet-4-5` | 🔜 Planned |
+| [Google Gemini](https://ai.google.dev/) | API | `gemini-2.0-flash` | 🔜 Planned |
+| [Groq](https://console.groq.com/) | API | `llama-3.3-70b-versatile` | 🔜 Planned |
+| [Mistral](https://console.mistral.ai/) | API | `mistral-small-latest` | 🔜 Planned |
+
 ### Ollama (Local)
 
 - **Pros:** Privacy, no API costs, works offline
 - **Cons:** Requires local setup and resources
-- **Setup:** Install [Ollama](https://ollama.ai/) and pull a model before running AI installer
+- **Setup:** Install [Ollama](https://ollama.ai/) and pull a model before running the AI installer
 
 ```bash
 # Install Ollama
@@ -340,8 +351,9 @@ The AI installer will ask for the Ollama host and port (default: `http://localho
 
 ### DeepSeek (API)
 
-- **Pros:** No local resources needed, fast responses
+- **Pros:** No local resources needed, fast responses, low cost
 - **Cons:** Requires API key, internet connection
+- **Default model:** `deepseek-chat`
 - **Setup:** Get an API key from [DeepSeek](https://platform.deepseek.com/)
 
 ### Moonshot/Kimi (API)
@@ -508,7 +520,7 @@ Verify your API key in `~/.ai/config` and check your internet connection.
 - [ ] History and learning from user preferences
 - [ ] Multi-step command generation
 - [ ] Shell integration (autocomplete, suggestions)
-- [ ] Support for more LLM providers (Anthropic, Gemini, etc.)
+- [ ] Support for more LLM providers (Anthropic, Google Gemini, Groq, Mistral)
 
 ## Contributing
 
