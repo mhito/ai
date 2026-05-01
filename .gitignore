@@ -20,3 +20,5 @@ Thumbs.db
 # Logs
 *.log
 opencode.jsonc
+dist/**
+node_modules/**

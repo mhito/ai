@@ -1,0 +1,24 @@
+{
+  "name": "ai-cli-installer",
+  "version": "1.0.0",
+  "description": "AI (Terminal-AI) Installer",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "install-cli": "npm run build && node dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "enquirer": "^2.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
