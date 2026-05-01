@@ -320,6 +320,34 @@ call_openai() {
   colorize_output "$answer"
 }
 
+# Check for --model flag
+if [ "$1" = "--model" ]; then
+  PROVIDER=$(get_config "AI_PROVIDER" "" "provider")
+  if [ -z "$PROVIDER" ]; then
+    echo "❌ AI is not configured yet."
+    exit 1
+  fi
+
+  case $PROVIDER in
+    ollama)
+      MODEL=$(get_config "AI_OLLAMA_MODEL" "ollama" "model")
+      ;;
+    deepseek)
+      MODEL=$(get_config "AI_DEEPSEEK_MODEL" "deepseek" "model")
+      ;;
+    moonshot)
+      MODEL=$(get_config "AI_MOONSHOT_MODEL" "moonshot" "model")
+      ;;
+    openai)
+      MODEL=$(get_config "AI_OPENAI_MODEL" "openai" "model")
+      ;;
+  esac
+
+  echo "Provider: $PROVIDER"
+  echo "Model:    ${MODEL:-<not set>}"
+  exit 0
+fi
+
 PROMPT="$*"
 
 # Check if there's input from stdin (pipe)
@@ -351,6 +379,7 @@ elif [ "$HAS_STDIN" = true ] && [ -z "$STDIN_TRIMMED" ]; then
   exit 1
 elif [ -z "$PROMPT" ]; then
   echo "Uso: aic \"tu pregunta\""
+  echo "      aic --model    (show current provider and model)"
   echo "      cat archivo | aic \"pregunta sobre el archivo\""
   echo "      cat archivo | aic  (analiza el contenido)"
   exit 1

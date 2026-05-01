@@ -2,6 +2,13 @@
 
 set -e
 
+# Verbose mode
+VERBOSE=0
+if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--verbose" ]; then
+    VERBOSE=1
+    set -x
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -354,31 +361,136 @@ update_ini_value() {
     chmod 600 "$config_file"
 }
 
+# Interactive arrow-key selector
+# Usage: select_option "Title" "opt1" "opt2" ...
+# Sets SELECTED_INDEX and SELECTED_VALUE
+select_option() {
+    local title="$1"
+    shift
+    local options=("$@")
+    local count=${#options[@]}
+    local selected=0
+    local key key2
+
+    # Total lines we print: 1 blank + 1 title + count options
+    local total_lines=$((count + 2))
+
+    # Hide cursor
+    if command -v tput >/dev/null 2>&1; then
+        tput civis 2>/dev/null
+    else
+        echo -en "\033[?25l"
+    fi
+
+    # Ensure cursor is restored on exit/interrupt
+    trap 'if command -v tput >/dev/null 2>&1; then tput cnorm 2>/dev/null; else echo -en "\033[?25h"; fi; trap - INT EXIT; exit 130' INT EXIT
+
+    # Helper: draw the full list
+    draw_list() {
+        echo ""
+        echo -e "${CYAN}${BOLD}${title}${RESET}"
+        for ((i=0; i<count; i++)); do
+            if [ $i -eq $selected ]; then
+                echo -e " ${GREEN}▶${RESET} ${BOLD}${options[$i]}${RESET}"
+            else
+                echo -e "   ${options[$i]}"
+            fi
+        done
+    }
+
+    # Initial draw
+    draw_list
+
+    # Move cursor back to the blank line before the title
+    echo -en "\033[${total_lines}A"
+
+    while true; do
+        # Read a single character
+        IFS= read -rs -n1 key || true
+
+        # Check for escape sequences (arrow keys)
+        if [[ "$key" == $'\033' ]]; then
+            IFS= read -rs -n2 key2 2>/dev/null || true
+            key="$key$key2"
+        fi
+
+        case "$key" in
+            $'\033[A'|$'\033OA') # Up arrow
+                selected=$((selected - 1))
+                if [ $selected -lt 0 ]; then
+                    selected=$((count - 1))
+                fi
+                ;;
+            $'\033[B'|$'\033OB') # Down arrow
+                selected=$((selected + 1))
+                if [ $selected -ge $count ]; then
+                    selected=0
+                fi
+                ;;
+            "") # Enter
+                break
+                ;;
+            *)
+                continue
+                ;;
+        esac
+
+        # Redraw full list (robust: go up, clear down, redraw)
+        echo -en "\033[${total_lines}A"
+        echo -en "\033[J"
+        draw_list
+        echo -en "\033[${total_lines}A"
+    done
+
+    # Restore cursor
+    if command -v tput >/dev/null 2>&1; then
+        tput cnorm 2>/dev/null
+    else
+        echo -en "\033[?25h"
+    fi
+    trap - INT EXIT
+
+    # Position cursor after the list
+    echo -en "\033[${total_lines}B"
+
+    SELECTED_INDEX=$selected
+    SELECTED_VALUE="${options[$selected]}"
+}
+
+# Provider and model definitions
+PROVIDERS=("ollama" "deepseek" "moonshot" "openai")
+PROVIDER_LABELS=("Ollama (local)" "DeepSeek (API)" "Moonshot/Kimi (API)" "OpenAI (API)")
+
+OLLAMA_MODELS=("deepseek-r1:7b" "llama3.2" "mistral" "qwen2.5" "phi4" "gemma2" "codellama" "Custom model...")
+DEEPSEEK_MODELS=("deepseek-v4-flash" "deepseek-v4-pro")
+MOONSHOT_MODELS=("kimi-k2.6" "kimi-k2.5" "moonshot-v1-8k" "moonshot-v1-32k" "moonshot-v1-128k")
+OPENAI_MODELS=("gpt-4o-mini" "gpt-4o" "gpt-4-turbo" "gpt-3.5-turbo")
+
 # Configure provider
 configure_provider() {
     echo -e "${YELLOW}⚙️  Configuring LLM Provider...${RESET}"
     echo ""
-    
+
     # Check if config already exists and verify permissions
     if [ -f "$HOME/.ai/config" ]; then
         echo -e "${BLUE}Existing configuration found.${RESET}"
-        
+
         # Check and fix permissions if needed
         if [[ "$OSTYPE" == "darwin"* ]]; then
             current_perms=$(stat -f "%OLp" "$HOME/.ai/config" 2>/dev/null)
         else
             current_perms=$(stat -c "%a" "$HOME/.ai/config" 2>/dev/null)
         fi
-        
+
         if [ "$current_perms" != "600" ]; then
             echo -e "${YELLOW}⚠️  Fixing insecure permissions on config file...${RESET}"
             chmod 600 "$HOME/.ai/config"
             echo -e "${GREEN}✓ Permissions set to 600${RESET}"
         fi
-        
+
         echo -n "Do you want to reconfigure? (y/n): "
         read -r reconfig
-        
+
         if [ "$reconfig" != "y" ] && [ "$reconfig" != "Y" ]; then
             echo -e "${GREEN}✓ Using existing configuration${RESET}"
             echo ""
@@ -386,23 +498,20 @@ configure_provider() {
         fi
         echo ""
     fi
-    
-    echo -e "${CYAN}${BOLD}Select LLM Provider:${RESET}"
-    echo "1) Ollama (local)"
-    echo "2) DeepSeek (API)"
-    echo "3) Moonshot/Kimi (API)"
-    echo "4) OpenAI (API)"
-    echo ""
-    echo -n "Select option [1-4]: "
-    read -r provider_choice
 
-    case $provider_choice in
-        1)
-            echo ""
-            echo -e "${BLUE}🧠 Ollama Configuration${RESET}"
-            echo ""
-            
-            # Check for existing Ollama host
+    # ── Provider selection ──
+    select_option "Select LLM Provider:" "${PROVIDER_LABELS[@]}"
+    local provider_idx=$SELECTED_INDEX
+    local provider_name="${PROVIDERS[$provider_idx]}"
+    local provider_label="${PROVIDER_LABELS[$provider_idx]}"
+
+    echo ""
+    echo -e "${BLUE}🧠 ${provider_label} Configuration${RESET}"
+    echo ""
+
+    case "$provider_name" in
+        ollama)
+            # Host
             existing_host=$(get_ini_value "ollama" "host")
             if [ -n "$existing_host" ]; then
                 echo -e "${YELLOW}Existing Ollama host found: ${existing_host}${RESET}"
@@ -418,36 +527,35 @@ configure_provider() {
                 echo -n "Ollama host (default: http://localhost:11434): "
                 read -r ollama_host
             fi
-            
-            # Use default if empty
             if [ -z "$ollama_host" ]; then
                 ollama_host="http://localhost:11434"
             fi
-            
-            echo -n "Model (e.g., llama3, deepseek-r1:7b): "
-            read -r model_name
-            
+
+            # Model selection
+            select_option "Select Ollama Model:" "${OLLAMA_MODELS[@]}"
+            local model_name="${SELECTED_VALUE}"
+            if [ "$model_name" = "Custom model..." ]; then
+                echo -n "Enter custom model name: "
+                read -r model_name
+            fi
+
             echo -n "Does the model already have a system prompt? (y/n): "
             read -r has_prompt
-            
-            # Update only Ollama-specific values, preserve others
+
             update_ini_value "" "provider" "ollama"
             update_ini_value "ollama" "model" "$model_name"
             update_ini_value "ollama" "has_prompt" "$has_prompt"
             update_ini_value "ollama" "host" "$ollama_host"
-            
+
             echo ""
             echo -e "${GREEN}✓ Ollama configured${RESET}"
             echo -e "${YELLOW}Note: Make sure Ollama is running at $ollama_host${RESET}"
             ;;
-        2)
-            echo ""
-            echo -e "${BLUE}🧠 DeepSeek Configuration${RESET}"
-            echo ""
+
+        deepseek)
             echo -e "${YELLOW}⚠️  Security Notice: Your API key will be stored in ~/.ai/config with 600 permissions${RESET}"
             echo ""
-            
-            # Check for existing DeepSeek API key
+
             existing_key=$(get_ini_value "deepseek" "api_key")
             if [ -n "$existing_key" ]; then
                 echo -e "${YELLOW}Existing DeepSeek API key found${RESET}"
@@ -463,23 +571,22 @@ configure_provider() {
                 echo -n "API Key: "
                 read -r api_key
             fi
-            
-            # Update only DeepSeek-specific values, preserve others
+
+            select_option "Select DeepSeek Model:" "${DEEPSEEK_MODELS[@]}"
+            local model_name="${SELECTED_VALUE}"
+
             update_ini_value "" "provider" "deepseek"
             update_ini_value "deepseek" "api_key" "$api_key"
-            update_ini_value "deepseek" "model" "deepseek-chat"
-            
+            update_ini_value "deepseek" "model" "$model_name"
+
             echo ""
             echo -e "${GREEN}✓ DeepSeek configured${RESET}"
             ;;
-        3)
-            echo ""
-            echo -e "${BLUE}🧠 Moonshot/Kimi Configuration${RESET}"
-            echo ""
+
+        moonshot)
             echo -e "${YELLOW}⚠️  Security Notice: Your API key will be stored in ~/.ai/config with 600 permissions${RESET}"
             echo ""
-            
-            # Check for existing Moonshot API key
+
             existing_key=$(get_ini_value "moonshot" "api_key")
             if [ -n "$existing_key" ]; then
                 echo -e "${YELLOW}Existing Moonshot API key found${RESET}"
@@ -495,23 +602,22 @@ configure_provider() {
                 echo -n "API Key: "
                 read -r api_key
             fi
-            
-            # Update only Moonshot-specific values, preserve others
+
+            select_option "Select Moonshot Model:" "${MOONSHOT_MODELS[@]}"
+            local model_name="${SELECTED_VALUE}"
+
             update_ini_value "" "provider" "moonshot"
             update_ini_value "moonshot" "api_key" "$api_key"
-            update_ini_value "moonshot" "model" "kimi-k2.5"
-            
+            update_ini_value "moonshot" "model" "$model_name"
+
             echo ""
             echo -e "${GREEN}✓ Moonshot/Kimi configured${RESET}"
             ;;
-        4)
-            echo ""
-            echo -e "${BLUE}🧠 OpenAI Configuration${RESET}"
-            echo ""
+
+        openai)
             echo -e "${YELLOW}⚠️  Security Notice: Your API key will be stored in ~/.ai/config with 600 permissions${RESET}"
             echo ""
 
-            # Check for existing OpenAI API key
             existing_key=$(get_ini_value "openai" "api_key")
             if [ -n "$existing_key" ]; then
                 echo -e "${YELLOW}Existing OpenAI API key found${RESET}"
@@ -528,31 +634,28 @@ configure_provider() {
                 read -r api_key
             fi
 
-            echo -n "Model (default: gpt-4o-mini): "
-            read -r openai_model
-            if [ -z "$openai_model" ]; then
-                openai_model="gpt-4o-mini"
-            fi
+            select_option "Select OpenAI Model:" "${OPENAI_MODELS[@]}"
+            local model_name="${SELECTED_VALUE}"
 
-            # Update only OpenAI-specific values, preserve others
             update_ini_value "" "provider" "openai"
             update_ini_value "openai" "api_key" "$api_key"
-            update_ini_value "openai" "model" "$openai_model"
+            update_ini_value "openai" "model" "$model_name"
 
             echo ""
             echo -e "${GREEN}✓ OpenAI configured${RESET}"
             ;;
+
         *)
             echo -e "${RED}Invalid option${RESET}"
             echo -e "${YELLOW}Skipping provider configuration. You can configure it later by running the installer again.${RESET}"
             ;;
     esac
-    
+
     # Ensure config file has secure permissions
     if [ -f "$HOME/.ai/config" ]; then
         chmod 600 "$HOME/.ai/config"
     fi
-    
+
     echo ""
 }
 
