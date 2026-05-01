@@ -418,21 +418,152 @@ call_groq() {
 
 prompt_execute() {
   local command="$1"
-  
+
   printf "run? (Y/n): "
-  
-  read -r response
-  
-  # Clean response
-  response=$(printf '%s' "$response" | tr -d '\r\n[:space:]')
-  
-  # Execute if empty (Enter) or Y/y
-  case "$response" in
-    ""|Y|y)
+
+  # Read a single character (raw, silent)
+  IFS= read -rs -n1 key || return
+
+  # If it's the start of an escape sequence (arrow keys, etc.), consume the rest
+  if [[ "$key" == $'\033' ]]; then
+    IFS= read -rs -t 0.1 -n2 rest 2>/dev/null || true
+    key="$key$rest"
+  fi
+
+  case "$key" in
+    ""|$'\n'|Y|y)
       bash -c "$command"
       ;;
-    *)
+    N|n)
       exit 0
+      ;;
+    *)
+      # Arrow keys, backspace, or any other key -> edit mode
+      echo ""
+      echo ""
+      echo "Modo edicion. Enter: ejecutar | Esc: salir | Ctrl+C: cancelar"
+      echo ""
+
+      # Simple line editor with cursor support
+      local line="$command"
+      local cursor=${#line}
+
+      # Print initial line
+      printf '%s' "$line"
+
+      while true; do
+        IFS= read -rs -n1 ch || return
+
+        # Escape sequence
+        if [[ "$ch" == $'\033' ]]; then
+          IFS= read -rs -t 0.05 -n2 seq 2>/dev/null || true
+
+          # Plain Escape (no sequence)
+          if [[ -z "$seq" ]]; then
+            echo ""
+            echo "Saliendo del modo edicion."
+            return
+          fi
+
+          case "$seq" in
+            "[D")
+              # Left arrow
+              if (( cursor > 0 )); then
+                cursor=$((cursor - 1))
+                printf '\033[D'
+              fi
+              ;;
+            "[C")
+              # Right arrow
+              if (( cursor < ${#line} )); then
+                cursor=$((cursor + 1))
+                printf '\033[C'
+              fi
+              ;;
+            "[3~")
+              # Delete key
+              if (( cursor < ${#line} )); then
+                line="${line:0:cursor}${line:cursor+1}"
+                printf '\033[P'
+              fi
+              ;;
+            "[H")
+              # Home
+              while (( cursor > 0 )); do
+                cursor=$((cursor - 1))
+                printf '\033[D'
+              done
+              ;;
+            "[F")
+              # End
+              while (( cursor < ${#line} )); do
+                cursor=$((cursor + 1))
+                printf '\033[C'
+              done
+              ;;
+          esac
+          continue
+        fi
+
+        # Backspace (DEL or BS)
+        if [[ "$ch" == $'\177' || "$ch" == $'\b' ]]; then
+          if (( cursor > 0 )); then
+            line="${line:0:cursor-1}${line:cursor}"
+            cursor=$((cursor - 1))
+            printf '\033[D\033[P'
+          fi
+          continue
+        fi
+
+        # Enter -> execute
+        if [[ "$ch" == $'\n' || "$ch" == "" ]]; then
+          echo ""
+          if [ -n "$line" ]; then
+            bash -c "$line"
+          fi
+          return
+        fi
+
+        # Ctrl+C -> cancel
+        if [[ "$ch" == $'\003' ]]; then
+          echo ""
+          echo "Cancelado."
+          return
+        fi
+
+        # Ctrl+A -> home
+        if [[ "$ch" == $'\001' ]]; then
+          while (( cursor > 0 )); do
+            cursor=$((cursor - 1))
+            printf '\033[D'
+          done
+          continue
+        fi
+
+        # Ctrl+E -> end
+        if [[ "$ch" == $'\005' ]]; then
+          while (( cursor < ${#line} )); do
+            cursor=$((cursor + 1))
+            printf '\033[C'
+          done
+          continue
+        fi
+
+        # Regular character -> insert
+        line="${line:0:cursor}${ch}${line:cursor}"
+        cursor=$((cursor + 1))
+        printf '%s' "$ch"
+        # Reprint remainder of line
+        if (( cursor < ${#line} )); then
+          printf '%s' "${line:cursor}"
+          # Move cursor back
+          local rem=$(( ${#line} - cursor ))
+          while (( rem > 0 )); do
+            printf '\033[D'
+            rem=$((rem - 1))
+          done
+        fi
+      done
       ;;
   esac
 }

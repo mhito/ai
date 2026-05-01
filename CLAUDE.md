@@ -22,7 +22,7 @@ ai --uninstall     # interactive uninstaller
 |------|---------|
 | `ai` | Command-generator script |
 | `aic` | Conversational assistant script |
-| `install.sh` | Interactive installer (language, provider, PATH setup) |
+| `install.sh` | Installer wrapper (checks Node.js, installs deps, builds & runs Node.js CLI) |
 | `setup.sh` | One-liner bootstrap (installs git, clones repo, runs installer) |
 | `lang/ai_en.md` / `lang/ai_es.md` | English/Spanish system prompts for `ai` |
 | `lang/aic_en.md` / `lang/aic_es.md` | English/Spanish system prompts for `aic` |
@@ -60,6 +60,10 @@ model=kimi-k2.5
 [openai]
 api_key=sk-xxxxxxxxxxxxx
 model=gpt-4o-mini
+
+[groq]
+api_key=gsk_xxxxxxxxxxxxx
+model=llama-3.3-70b-versatile
 ```
 
 Switching providers only updates the global `provider=` key; all other sections are preserved.
@@ -80,6 +84,8 @@ All config values can be overridden via environment variables (checked before th
 | `AI_MOONSHOT_MODEL` | `[moonshot] model` |
 | `AI_OPENAI_API_KEY` | `[openai] api_key` |
 | `AI_OPENAI_MODEL` | `[openai] model` |
+| `AI_GROQ_API_KEY` | `[groq] api_key` |
+| `AI_GROQ_MODEL` | `[groq] model` |
 
 ## Dependencies
 
@@ -123,12 +129,13 @@ Example flow:
 
 ### Provider dispatch
 
-Both scripts use a `case $PROVIDER in ollama|deepseek|moonshot) ... esac` block. Adding a new provider requires:
+Both scripts use a `case $PROVIDER in ollama|deepseek|moonshot|openai|groq) ... esac` block. Adding a new provider requires:
 - A `call_<provider>()` function in both `ai` and `aic`
 - A new `case` branch in each script that calls `get_config` for its credentials
-- A new branch in `install.sh`'s `configure_provider()` that calls `update_ini_value()`
+- A new provider module in `src/providers/<provider>.ts` and registration in `src/providers/index.ts`
 
-### Config helpers (install.sh)
+### Config helpers (Node.js installer)
 
-- `get_ini_value <section> <key>` — reads a value from a named section (or global if section is empty)
-- `update_ini_value <section> <key> <value>` — upserts a value, creating the section if needed, then enforces `chmod 600`
+- `getIniValue(section, key)` — reads a value from a named section (or global if section is empty)
+- `updateIniValue(section, key, value)` — upserts a value, creating the section if needed, then enforces `chmod 600`
+- `loadProviderConfig(provider)` — reads all keys for a given provider section
