@@ -1,6 +1,6 @@
 # TAI configuration (contains API keys)
 .tai/
-config
+/config
 
 # Temporary files
 *.tmp
